@@ -1,5 +1,6 @@
 """Điểm khởi chạy bot Discord Tu Tiên."""
 
+import asyncio
 import os
 
 import discord
@@ -14,6 +15,23 @@ from keep_alive import keep_alive  # noqa: E402
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = os.getenv("GUILD_ID")  # tùy chọn: điền để slash command hiện ngay lập tức
+# Đặt SYNC_ON_START=1 trên Render CHỈ khi vừa thêm/sửa slash command, deploy xong nhớ xóa đi.
+SYNC_ON_START = os.getenv("SYNC_ON_START") == "1"
+
+# Thời gian chờ (giây) khi Discord/Cloudflare chặn IP, để không gây vòng lặp restart.
+CHO_TOI_THIEU = 900    # 15 phút
+CHO_TOI_DA = 3600      # 60 phút
+
+
+async def dong_bo_lenh(bot: commands.Bot) -> int:
+    """Đồng bộ slash command lên Discord. Trả về số lệnh đã sync."""
+    if GUILD_ID:
+        guild = discord.Object(id=int(GUILD_ID))
+        bot.tree.copy_global_to(guild=guild)
+        dong_bo = await bot.tree.sync(guild=guild)
+    else:
+        dong_bo = await bot.tree.sync()
+    return len(dong_bo)
 
 
 class TuTienBot(commands.Bot):
@@ -25,32 +43,58 @@ class TuTienBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await db.ket_noi()
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        else:
-            await self.tree.sync()
+        if SYNC_ON_START:
+            n = await dong_bo_lenh(self)
+            print(f"🔄 Đã đồng bộ {n} slash command.")
 
     async def on_ready(self) -> None:
         print(f"☯️ Bot đã đăng nhập: {self.user} (ID: {self.user.id})")
 
 
-bot = TuTienBot()
+def tao_bot() -> TuTienBot:
+    bot = TuTienBot()
+
+    @bot.tree.command(name="game", description="Mở Bảng Điều Khiển Tu Tiên của bạn")
+    async def game(interaction: discord.Interaction):
+        p = await db.lay_nguoi_choi(interaction.user.id)
+        view = views.MainView(p, interaction.user.id)
+        await interaction.response.send_message(
+            embed=views.embed_chinh(p, interaction.user), view=view
+        )
+        view.message = await interaction.original_response()
+
+    @bot.command(name="sync")
+    @commands.is_owner()
+    async def sync(ctx: commands.Context):
+        """Chủ bot gõ: @TênBot sync  -> đồng bộ slash command (chỉ khi cần)."""
+        n = await dong_bo_lenh(bot)
+        await ctx.reply(f"🔄 Đã đồng bộ {n} slash command.")
+
+    return bot
 
 
-@bot.tree.command(name="game", description="Mở Bảng Điều Khiển Tu Tiên của bạn")
-async def game(interaction: discord.Interaction):
-    p = await db.lay_nguoi_choi(interaction.user.id)
-    view = views.MainView(p, interaction.user.id)
-    await interaction.response.send_message(
-        embed=views.embed_chinh(p, interaction.user), view=view
-    )
-    view.message = await interaction.original_response()
+async def chay_bot() -> None:
+    """Chạy bot; nếu bị chặn/rate limit thì chờ lâu rồi thử lại, KHÔNG thoát tiến trình."""
+    cho = CHO_TOI_THIEU
+    while True:
+        bot = tao_bot()
+        try:
+            async with bot:
+                await bot.start(TOKEN)
+            return  # bot đóng bình thường
+        except discord.LoginFailure:
+            raise SystemExit("DISCORD_TOKEN sai hoặc đã bị reset!")
+        except discord.HTTPException as e:
+            # 429 / trang HTML của Cloudflare (lỗi 1015) -> IP đang bị chặn tạm thời
+            print(f"⚠️ Discord từ chối kết nối (HTTP {e.status}). Chờ {cho // 60} phút rồi thử lại.")
+        except Exception as e:  # noqa: BLE001 - lỗi mạng/Mongo tạm thời
+            print(f"⚠️ Lỗi khi khởi động: {e!r}. Chờ {cho // 60} phút rồi thử lại.")
+        await asyncio.sleep(cho)
+        cho = min(cho * 2, CHO_TOI_DA)
 
 
 if __name__ == "__main__":
     if not TOKEN:
         raise SystemExit("Thiếu DISCORD_TOKEN trong .env / biến môi trường!")
     keep_alive()  # mở web server nhỏ để Render/UptimeRobot ping
-    bot.run(TOKEN)
+    asyncio.run(chay_bot())
