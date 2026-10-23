@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()  # đọc file .env khi chạy local (trên Render dùng Environment Variables)
 
 import database as db  # noqa: E402
-import views  # noqa: E402
+import lenh  # noqa: E402
 from keep_alive import keep_alive  # noqa: E402
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -54,14 +54,7 @@ class TuTienBot(commands.Bot):
 def tao_bot() -> TuTienBot:
     bot = TuTienBot()
 
-    @bot.tree.command(name="game", description="Mở Bảng Điều Khiển Tu Tiên của bạn")
-    async def game(interaction: discord.Interaction):
-        p = await db.lay_nguoi_choi(interaction.user.id)
-        view = views.MainView(p, interaction.user.id)
-        await interaction.response.send_message(
-            embed=views.embed_chinh(p, interaction.user), view=view
-        )
-        view.message = await interaction.original_response()
+    lenh.dang_ky(bot)  # đăng ký các slash command gõ tay (/start, /tuluyen, ...)
 
     @bot.command(name="sync")
     @commands.is_owner()

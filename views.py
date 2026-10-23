@@ -63,7 +63,7 @@ def embed_chinh(p: dict, user: discord.abc.User, log: str | None = None) -> disc
         buffs.append(f"📜 Tụ Linh Phù hết hạn <t:{int(den)}:R>")
     emb.add_field(name="🔮 Hiệu ứng", value="\n".join(buffs) or "Không có", inline=True)
 
-    emb.set_footer(text="Gõ /game để mở bảng điều khiển riêng của bạn")
+    emb.set_footer(text="Gõ /start hoặc /game để mở bảng điều khiển riêng của bạn")
     return emb
 
 

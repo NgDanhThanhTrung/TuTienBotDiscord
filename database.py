@@ -67,3 +67,8 @@ async def lay_nguoi_choi(user_id: int) -> dict:
         upsert=True,
     )
     return await players().find_one({"user_id": user_id})
+
+
+async def da_co_nguoi_choi(user_id: int) -> bool:
+    """Kiểm tra người chơi đã /start (đã có hồ sơ) chưa."""
+    return await players().count_documents({"user_id": user_id}, limit=1) > 0
